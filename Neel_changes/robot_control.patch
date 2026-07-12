@@ -1,5 +1,5 @@
 --- /private/tmp/claude-502/-Users-750032930-Source-Code-robosub-2026-main/ec00b742-f137-48d9-aed2-40d5e26e2d8a/scratchpad/orig/robot_control.py	2026-07-12 14:45:54
-+++ auv/motion/robot_control.py	2026-07-12 14:31:17
++++ /Users/750032930/Source_Code/robosub_2026-main/auv/motion/robot_control.py	2026-07-12 15:32:47
 @@ -8,7 +8,7 @@
  # Import the MAVROS message types that are needed
  import rospy
@@ -78,3 +78,11 @@
              delta = target - self.dvl_sum
  
              # base lateral command (before ramp)
+@@ -734,7 +767,6 @@
+                 time.sleep(3)
+                 rospy.loginfo(f"Heading reached, going forward {D} m")
+                 self.go_forward_distance(D)
+-                self.activate_heading_control(False)
+                 rospy.loginfo(f"Reached {(x,y)}")
+                 time.sleep(0.1)
+             except Exception as e:

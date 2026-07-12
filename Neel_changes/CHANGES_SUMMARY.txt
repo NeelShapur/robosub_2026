@@ -67,3 +67,71 @@ Suggested validation before trusting this in a full run:
    the full sequence - expect either a clean stop at distance, or a
    fast abort with "DVL invalid too long, aborting forward move" in
    the log - not a repeat of the old 30s-blind-thrust pattern.
+
+----------------------------------------------------------------------
+
+Onyx fix - waypointNav drift-on-arrival (added after review of Onyx
+logs from this morning's run)
+=======================================================================
+
+Issue reported: Onyx drifts (rotates) once it reaches a forward
+distance / waypoint target, and separately, commanded heading drifts
+~50 degrees over the course of a mission when returning to a
+previously-set heading.
+
+This fix addresses only the FIRST issue (drift right after arrival).
+The heading-drift-over-time issue is NOT fixed here - still suspected
+to be thruster/motor electrical or magnetic interference affecting the
+VN100 IMU (see notes below), which needs a hardware-side test/fix, not
+a code change.
+
+Root cause (drift on arrival): auv/motion/robot_control.py,
+waypointNav() turned heading control OFF immediately after arriving
+at a waypoint (right after go_forward_distance() returns). With
+heading hold off and thrust already zeroed, nothing actively corrects
+the sub's orientation after "arrival" - it just coasts/rotates freely
+under momentum, current, or thruster asymmetry until the next command.
+Confirmed via grep that virtually every real Onyx mission script
+(onyx_main.py, onyx_2026_main.py, onyx_all.py, onyx_b2.py, etc.) calls
+waypointNav(), and all of them run in "depth_hold" control mode (the
+mode where this heading_control flag actually matters).
+
+Fix: auv/motion/robot_control.py, line 770 (in waypointNav()) -
+deleted the line `self.activate_heading_control(False)` that ran
+right after go_forward_distance(D). Heading hold now stays active
+after arrival instead of being dropped. One-line change.
+
+Limitation: this only fixes ROTATIONAL drift after arrival. Surge/
+lateral thrust are already zero at that point regardless of this
+change, so if the sub is also translating (sliding) after arrival,
+this fix won't address that - a true position hold would require
+switching to "pid" control mode, a bigger change not made here.
+
+Onyx log review (this morning's run, onyx_logs/reroslogs.zip):
+- Reviewed a 5-leg square waypoint test ((0,0)->(0,2)->(2,2)->(2,0)->
+  (0,0)). One leg (turning to ~98.6 degrees, a ~90 degree turn) took
+  40 seconds to settle vs 4-16 seconds for every other leg (including
+  turns of 150-180 degrees) - consistent with the compass
+  hunting/fighting to converge during that turn rather than normal
+  settling.
+- Onyx's VN100 IMU shows the same serial-corruption pattern found on
+  Graey (null bytes injected into numeric fields, e.g.
+  "+178\x00.934"), confirming this is a shared/systemic issue, not
+  Graey-specific hardware. On Onyx these corruption bursts cluster
+  just seconds before each mission arm/start event rather than being
+  evenly spaced in time, suggesting an electrical transient during
+  arming/thruster engagement disrupts the IMU serial link - and
+  plausibly the magnetometer itself, since motor current spikes
+  produce real magnetic fields too.
+- None of this proves the heading-drift-over-time issue is magnetic
+  interference - it's circumstantial support for that hypothesis, not
+  confirmation. Recommended next step (not yet done): hold Onyx
+  stationary, ramp thrusters through their power range, and watch
+  /auv/devices/vectornav for yaw movement with zero real rotation. If
+  yaw shifts, that confirms magnetic/electrical interference from the
+  thrusters, and the actual fix would be a proper VectorNav hard/soft-
+  iron magnetometer calibration (a hardware procedure, not a code
+  change) - not something to attempt from this repo.
+
+Testing done for this fix: python3 -m py_compile passes. NOT tested
+in water or against real hardware - same caveat as the DVL fix above.
